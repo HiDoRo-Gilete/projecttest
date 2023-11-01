@@ -1,6 +1,6 @@
+from audioop import reverse
 import enum
-from re import L
-from tkinter import VERTICAL, Widget
+import math
 import pygame,sys,random
 from pygame.locals import*
 
@@ -24,15 +24,31 @@ width_wall = 10
 radius_wall = 5 
 width_rec = 45
 
+#class Position():
+#    def __init__(self,i,j):
+#        self.posi = i 
+#        self.posj = j 
+
+
+def getDistance(x1,y1,x2,y2):
+    return round(math.sqrt((x1-x2)*(x1-x2) + (y1-y2)*(y1-y2)) *100) /100
+
 class TableGame:
     def __init__(self):
         self.table = [];
+        self.heuristic = [];
     def initTable(self):
         for i in range(0,row):
             temp =[]
             for j in range(0,column):
                 temp.append(0);
             self.table.append(temp)
+
+        for i in range(0,row):
+            temp =[]
+            for j in range(0,column):
+                temp.append(0);
+            self.heuristic.append(temp)
 
     def UpdateTable(self,posi,posj):
         if(self.table[posi][posj] == 2):
@@ -44,7 +60,78 @@ class TableGame:
                 if (self.table[i][j] == 2):
                     return False
         return True
+    def UpdateHeuristicTable(self,posi,posj):
+        for i in range(0,row):
+            for j in range(0,column):
+                self.heuristic[i][j] = getDistance(i,j,posi,posj);
 
+    def findFoodNearest(self,posi,posj):
+        nearestFood = 100000
+        ifood=0
+        jfood=0
+        for i in range(0,row):
+            for j in range (0,column):
+                if self.table[i][j] == 2 and nearestFood  > getDistance(posi,posj,i,j):
+                    ifood = i
+                    jfood = j
+                    nearestFood = getDistance(posi,posj,i,j)
+
+        return [ifood,jfood]
+        
+    def A_star_Lv1(self):
+        result = []
+        Queue = []
+        pfood = self.findFoodNearest(pacman.posi,pacman.posj)
+        self.UpdateHeuristicTable(pfood[0],pfood[1])
+        visited =[]
+        for i in range(0,row):
+            temp = []
+            for j in range (0,column):
+                temp.append(0)
+            visited.append(temp)
+        pacmanpos = [pacman.posi,pacman.posj]
+        visited[pacman.posi][pacman.posj] =1
+        print(pfood," ")
+        result.append(pacmanpos)
+        while True:
+            if(len(Queue)!=0):
+                pos = Queue[0]
+                pos.pop(2) #delete weight
+                pacmanpos = pos
+                result.append(pacmanpos)
+                Queue.pop(0)
+                if pacmanpos[0] == pfood[0] and pacmanpos[1] == pfood[1]:
+                    break
+            connectdirection = PositionCanGoUp(pacmanpos[0],pacmanpos[1])
+            #add weight for sort
+            for i in range (0,len(connectdirection)):
+                if(visited[connectdirection[i][0]][connectdirection[i][1]] == 0):
+                    connectdirection[i].append(self.heuristic[connectdirection[i][0]][connectdirection[i][1]])
+                    Queue.append(connectdirection[i])
+                    visited[connectdirection[i][0]][connectdirection[i][1]] =1 
+            Queue = sorted(Queue,key = lambda item: item[2],reverse = False)
+        #result.append(DirectionCanGoUp(pacman.posi,pacman.posj)[random.randint(0,len(DirectionCanGoUp(pacman.posi,pacman.posj)) -1)])
+        print(result)
+
+
+        return ConvertDirection(result)
+
+
+def ConvertDirection(pos):
+    direction =[]
+    i = len(pos) - 1
+    while(i!=0):
+        j = 1
+        t = -1
+        while(t == -1):
+            t= DirectionFromTo(pos[i-j],pos[i])
+            if (t!=-1 and t in DirectionCanGoUp(pos[i-j][0],pos[i-j][1])):
+                i = i-j
+                direction.insert(0,t)
+            else: t=-1
+            j+=1
+
+    return direction
 
 
 class PacMan:
@@ -75,10 +162,13 @@ class PacMan:
                 elif self.direction_queue[0] == UP: self.posi -= 1
                 elif self.direction_queue[0] == DOWN: self.posi += 1
                 self.direction_queue.pop(0)
-            self.UpdateDirectionQueue()
+            if len(self.direction_queue) == 0:
+                if(Map.table[self.posi][self.posj] == 2):
+                    Map.table[self.posi][self.posj] =0
+                self.UpdateDirectionQueue()
             self.posx = self.posy = 0
             self.step = 0;
-
+         
         if self.direction_queue[0] == LEFT:
             self.posx -= self.v
         elif self.direction_queue[0] == RIGHT:
@@ -91,8 +181,9 @@ class PacMan:
         self.step+=self.v;
 
     def UpdateDirectionQueue(self):
-        direction = DirectionCanGoUp()
-        self.direction_queue.append(direction[random.randint(0,len(direction) -1)])
+
+        #A* here. the path is insert to the direction_queue
+        self.direction_queue = Map.A_star_Lv1();
         
 
 class Wall:
@@ -139,6 +230,8 @@ def drawFood():
         for j in range(0,column):
             if(Map.table[i][j] == 2):
                 pygame.draw.circle(screen,(0,38,230),(width_rec*j +width_rec/2 +x_root,width_rec*i+ width_rec/2 +y_root),10)
+
+
 
 def draw(wall):
     screen.fill((0,0,0));
@@ -187,18 +280,44 @@ def readFile(filename,wall):
     pacman.posi = int(data[4][0])
     pacman.posj = int(data[4][2])
 
-def DirectionCanGoUp():
+def DirectionFromTo(pos1,pos2):
+    if(pos1[0] - pos2[0]) == 1 and pos1[1] == pos2[1]:
+        return UP
+    if(pos1[0] - pos2[0]) == -1 and pos1[1] == pos2[1]:
+        return DOWN
+    if(pos1[1] - pos2[1]) == 1 and pos1[0] == pos2[0]:
+        return LEFT
+    if(pos1[1] - pos2[1]) == -1 and pos1[0] == pos2[0]:
+        return RIGHT
+    else: 
+        return -1
+
+def DirectionCanGoUp(posi,posj):
     direction =[]
-    if pacman.posj != column -1 and wall.vertical_wall[pacman.posi][pacman.posj] == 0: 
+    if posj != column -1 and wall.vertical_wall[posi][posj] == 0: 
         direction.append(RIGHT)
-    if pacman.posj != 0 and wall.vertical_wall[pacman.posi][pacman.posj-1] == 0: 
+    if posj != 0 and wall.vertical_wall[posi][posj-1] == 0: 
         direction.append(LEFT)
-    if pacman.posi != 0 and wall.horizental_wall[pacman.posi -1][pacman.posj] == 0: 
+    if posi != 0 and wall.horizental_wall[posi -1][posj] == 0: 
         direction.append(UP)
-    if pacman.posi != row -1  and wall.horizental_wall[pacman.posi][pacman.posj] == 0: 
+    if posi != row -1  and wall.horizental_wall[posi][posj] == 0: 
         direction.append(DOWN)
 
     return direction
+
+def PositionCanGoUp(posi,posj):
+    result =[]
+    direction = DirectionCanGoUp(posi,posj);
+    for i in range(0,len(direction)):
+        if direction[i] == LEFT:
+            result.append([posi,posj - 1])
+        elif direction[i] == RIGHT:
+            result.append([posi,posj+1])
+        elif direction[i] == UP:
+            result.append([posi -1,posj])
+        elif direction[i] == DOWN:
+            result.append([posi +1,posj])
+    return result
 
 isplay = True
 
@@ -207,6 +326,7 @@ while True:
     pacman = PacMan()
     Map = TableGame()
     readFile("map2.txt",wall)
+    Map.UpdateHeuristicTable(3,4)
     while isplay:
         Map.UpdateTable(pacman.posi,pacman.posj)
         if (Map.checkWin()):
